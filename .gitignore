@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+.DS_Store
+# data files (too large / downloaded separately)
+data/
+*.zip
+# generated outputs
+*.pdf
+*.png
