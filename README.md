@@ -26,5 +26,4 @@ Black–Scholes and a CRR tree, checks put–call parity, and plots how the tree
   and open a pull request. Someone else reviews it before merging.
 - Persons 1 and 2: working pricers by **3 November**. Everyone else imports them.
 - Put shared code in Python modules, not notebooks, so it can be imported. Notebooks are fine for exploration.
-- **Don't commit data files** (NSE bhavcopies, CSVs). They are listed in `.gitignore`; share them on Drive.
 - Every function gets a docstring saying which equation of the proposal it implements.
