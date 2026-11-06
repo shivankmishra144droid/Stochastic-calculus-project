@@ -41,7 +41,7 @@ Detailed method, formulas and code design are in `PROJECT_PLAN.md`. This file is
 - [ ] Collect everyone's GitHub username in the group chat; add them as collaborators (Settings → Collaborators)
 - [ ] Check the contributors list no longer shows Claude (if it still does, the force-push didn't go through)
 - [ ] Push `PROJECT_PLAN.md` and this `TODO.md` to the repo
-- [ ] Confirm Pradyumn's ID (`2023B5AD0973G` vs `2024B5AD0973G`) and Asvin/Aswin spelling for the report
+- [x] Confirmed: Pradyumn's ID is `2023B5AD0973G`; spelling is Asvin
 
 ---
 

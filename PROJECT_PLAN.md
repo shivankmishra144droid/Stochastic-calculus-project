@@ -484,7 +484,7 @@ Page limit is tight: pick the 5–6 strongest figures; the rest go in an appendi
 Add one line in the introduction: *"Beyond the proposal, we extended the study to real NSE option prices,
 implied volatility and machine-learning benchmarks."*
 
-Check before submitting: Pradyumn's ID (2023 vs 2024 B5AD0973G) and the spelling of Asvin/Aswin.
+Confirmed: Pradyumn's ID is 2023B5AD0973G; the spelling is Asvin.
 
 ---
 
