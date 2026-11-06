@@ -16,7 +16,6 @@ Output: printed table + convergence.pdf
 import time
 
 import numpy as np
-from scipy.stats import norm
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -29,49 +28,19 @@ sigma = 0.20   # volatility
 T = 1.0        # maturity in years
 
 
-# ---------------- Black-Scholes (Section 2.2) ----------------
-def bs_price(S, K, T, r, sigma, option_type="call"):
-    """Closed-form Black-Scholes price of a European option (no dividends)."""
-    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    if option_type == "call":
-        return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-    return K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+# Pricers live in src/core (single source of truth for the whole project).
+from src.core.binomial import binomial_price
+from src.core.bs import bs_price
 
 
-# ---------------- CRR binomial tree (Section 2.1) ----------------
-def crr_price(S, K, T, r, sigma, N, option_type="call"):
-    """European option price from an N-step Cox-Ross-Rubinstein tree.
-
-    u = exp(sigma*sqrt(dt)), d = 1/u, q = (exp(r*dt) - d) / (u - d).
-    Terminal payoffs are discounted back one step at a time:
-        V(n, j) = exp(-r*dt) * [q*V(n+1, j+1) + (1-q)*V(n+1, j)]
-    """
-    dt = T / N
-    u = np.exp(sigma * np.sqrt(dt))
-    d = 1 / u
-    q = (np.exp(r * dt) - d) / (u - d)          # risk-neutral up-probability
-
-    # stock prices at maturity: S * u^j * d^(N-j), j = N, N-1, ..., 0
-    j = np.arange(N, -1, -1)
-    ST = S * u**j * d**(N - j)
-
-    # payoff at maturity
-    if option_type == "call":
-        V = np.maximum(ST - K, 0.0)
-    else:
-        V = np.maximum(K - ST, 0.0)
-
-    # backward induction (vectorised over the nodes at each time step)
-    disc = np.exp(-r * dt)
-    for _ in range(N):
-        V = disc * (q * V[:-1] + (1 - q) * V[1:])
-    return V[0]
+def crr_price(S, K, T, r, sigma, N, option_type="C"):
+    """N-step Cox-Ross-Rubinstein price (proposal Section 2.1); thin wrapper over src.core.binomial."""
+    return binomial_price(S, K, T, r, sigma, N, option_type, method="crr")
 
 
 # ---------------- 1. Black-Scholes values and put-call parity ----------------
-C_bs = bs_price(S0, K, T, r, sigma, "call")
-P_bs = bs_price(S0, K, T, r, sigma, "put")
+C_bs = bs_price(S0, K, T, r, sigma, "C")
+P_bs = bs_price(S0, K, T, r, sigma, "P")
 parity_gap = (C_bs - P_bs) - (S0 - K * np.exp(-r * T))   # should be 0
 print(f"Black-Scholes call = {C_bs:.4f}, put = {P_bs:.4f}")
 print(f"Put-call parity gap = {parity_gap:.2e}\n")
@@ -80,14 +49,14 @@ print(f"Put-call parity gap = {parity_gap:.2e}\n")
 print(f"{'N':>5} {'CRR call':>10} {'|error|':>10} {'CRR put':>10} {'runtime':>10}")
 for N in [10, 50, 100, 101, 500, 1000]:
     t0 = time.perf_counter()
-    c = crr_price(S0, K, T, r, sigma, N, "call")
+    c = crr_price(S0, K, T, r, sigma, N, "C")
     runtime_ms = (time.perf_counter() - t0) * 1000
-    p = crr_price(S0, K, T, r, sigma, N, "put")
+    p = crr_price(S0, K, T, r, sigma, N, "P")
     print(f"{N:>5} {c:>10.4f} {abs(c - C_bs):>10.2e} {p:>10.4f} {runtime_ms:>8.2f} ms")
 
 # ---------------- 3. Convergence for every N from 1 to 300 ----------------
 Ns = np.arange(1, 301)
-err = np.array([crr_price(S0, K, T, r, sigma, n, "call") - C_bs for n in Ns])
+err = np.array([crr_price(S0, K, T, r, sigma, n, "C") - C_bs for n in Ns])
 even, odd = Ns % 2 == 0, Ns % 2 == 1
 
 # convergence rate: slope of log|error| against log N (fit on N >= 51)

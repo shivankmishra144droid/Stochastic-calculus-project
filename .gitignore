@@ -3,10 +3,20 @@ __pycache__/
 .venv/
 venv/
 .ipynb_checkpoints/
+.pytest_cache/
 .DS_Store
-# data files (too large / downloaded separately)
-data/
-*.zip
-# generated outputs
-*.pdf
+
+# local scratch: unpacked old workflow (kept for reference, not part of the repo)
+archive/
+
+# generated outputs (rebuilt by `python run_all.py`)
+data/processed/
+results/
 *.png
+convergence.pdf
+
+# report build artefacts
+report/*.aux
+report/*.log
+report/*.out
+report/*.synctex.gz
