@@ -29,10 +29,15 @@ implied vol) misses by 2–15 bp, the smile that both share; that is the real mo
 | σ, no option prices, regime seen before | ML blend (random forest) | 10.1 bp vs 12.7 (EWMA), 14.9 (30-day) |
 | σ, no option prices, new regime | EWMA or 30-day + VIX regression | 12.2–12.7 bp; six-input ML overfits |
 
-**Limitations** (report Section 7):
+**Robustness checks** (report Section 7, `src/market/robustness.py`):
+- Looser filters (volume ≥ 1, no OI limit: 6,271–6,547 contracts) and stricter ones (volume ≥ 100, OI ≥ 500: 5,343)
+  leave the decomposition unchanged: numerical 0.05 bp, input choice 10.4–11.2 bp, smile 6.1–6.3 bp (input/numerical 215–222×).
+- A trading-day clock (variance σ²·n_td/252) does not reduce errors at any maturity (+0.2 to +1.8 bp, CIs include 0
+  or are slightly worse), so the calendar clock is kept.
+
+**Limitations**:
 - Only 14 trading days on 3 underlyings (42 rows for the ML), so the confidence intervals are rough.
-- Settlements are closing VWAPs, and we did not test looser liquidity filters.
-- Volatility uses a 252-trading-day year while T uses calendar days; a trading-day clock is untested.
+- Settlements are closing VWAPs, not synchronous with the underlying.
 - The T-bill rate is not the true carry for single stocks, and VIX measures NIFTY, not the stocks.
 - Options are European only, and both models use one constant σ.
 
@@ -40,8 +45,8 @@ implied vol) misses by 2–15 bp, the smile that both share; that is the real mo
 ```bash
 python -m venv .venv && .venv/Scripts/activate      # (source .venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
-python -m pytest -q                                 # 75 tests, ~6 s
-python run_all.py                                   # every figure and table, ~5 min (4 of them: the runtime table)
+python -m pytest -q                                 # 78 tests, ~10 s
+python run_all.py                                   # every figure and table, ~7 min (4 of them: the runtime table)
 python run_all.py --only convergence market         # just some parts
 ```
 Outputs go to `results/figures/*.pdf`, `results/tables/*.csv` and `data/processed/` (all regenerated, not committed).
@@ -60,6 +65,7 @@ Outputs go to `results/figures/*.pdf`, `results/tables/*.csv` and `data/processe
 | `src/market/` | model vs market, smiles, forward fix, error tables, headline figure | Shivank |
 | `src/model_risk/` | dividends, time-varying σ, σ-error vs N-error | Pradyumn |
 | `src/stats.py` | bootstrap CIs over trading dates (cluster bootstrap) | all |
+| `src/market/robustness.py` | Robustness: error decomposition under looser/stricter liquidity filters, and a trading-day clock | all |
 | `src/ml/sigma_blend.py` | ML chooses σ: linear regression / random forest blend of historical vols + India VIX, tested on unseen days and regimes | all |
 | `tests/` | pytest suite (engines, data pipeline on synthetic files, no-look-ahead checks) | all |
 | `report/` | LaTeX report and viva notes | all |

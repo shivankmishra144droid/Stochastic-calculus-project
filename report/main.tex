@@ -29,7 +29,7 @@ Asvin Sunderiyal & 2024ADPS0867G & &
 
 \section{Introduction}
 European options can be priced by a discrete no-arbitrage argument (the binomial tree) or by continuous-time
-stochastic calculus (Black--Scholes, BS). We ask: \emph{for European options on Indian underlyings, how do the two
+stochastic calculus (Black--Scholes, BS)~\cite{bs,crr,hull}. We ask: \emph{for European options on Indian underlyings, how do the two
 models compare in accuracy, speed, flexibility and real-market fit, and does the choice of model or the choice of
 inputs (especially volatility) matter more?} Since the tree is a discretisation of the same GBM model, we answer
 the second part by separating three error sources: numerical (tree vs BS), input (which $\sigma$) and model
@@ -46,8 +46,8 @@ portfolio of $\Delta=(V_u-V_d)/(S u-S d)$ shares and $B$ in the bond replicates 
 cost $\Delta S+B$ is the price; rewriting it gives risk-neutral valuation
 $V_{n,j}=e^{-r\Delta t}[qV_{n+1,j+1}+(1-q)V_{n+1,j}]$ with $q=(e^{(r-\delta)\Delta t}-d)/(u-d)$, which lies in
 $(0,1)$ iff $d<e^{(r-\delta)\Delta t}<u$ (otherwise the stock or the bond dominates: an arbitrage, shown for
-$r=50\%$, $\sigma=5\%$, $N=1$ where $q=6.97$). CRR uses $u=1/d=e^{\sigma\sqrt{\Delta t}}$; Jarrow--Rudd (JR) centres
-the log-steps on the drift; Leisen--Reimer (LR, odd $N$) chooses $q=h(d_2)$, $q'=h(d_1)$ by Peizer--Pratt inversion
+$r=50\%$, $\sigma=5\%$, $N=1$ where $q=6.97$). CRR~\cite{crr} uses $u=1/d=e^{\sigma\sqrt{\Delta t}}$; Jarrow--Rudd (JR)~\cite{jr} centres
+the log-steps on the drift; Leisen--Reimer (LR, odd $N$)~\cite{lr} chooses $q=h(d_2)$, $q'=h(d_1)$ by Peizer--Pratt inversion
 so the tree matches the BS probabilities. Tree Greeks come from the nodes at steps 1--2 (\code{binomial\_greeks}).
 
 \textbf{Black--Scholes} (\code{src/core/bs.py}). Under $\mathbb Q$, $dS_t=(r-\delta)S_t\,dt+\sigma S_t\,dW_t$. Itô's
@@ -55,11 +55,11 @@ lemma on $V(S,t)$ and a delta-hedged portfolio give
 $V_t+\tfrac12\sigma^2S^2V_{SS}+(r-\delta)SV_S-rV=0$, with solution
 $C=Se^{-\delta T}\Phi(d_1)-Ke^{-rT}\Phi(d_2)$, $d_{1,2}=[\ln(S/K)+(r-\delta\pm\tfrac12\sigma^2)T]/\sigma\sqrt T$.
 $\Phi(d_2)$ is the risk-neutral exercise probability. Put--call parity holds to $3\times10^{-14}$ on $10^4$ random
-contracts. Implied volatility solves $\mathrm{BS}(\sigma)=V^{\text{mkt}}$ by Newton from the Manaster--Koehler start,
+contracts. Implied volatility solves $\mathrm{BS}(\sigma)=V^{\text{mkt}}$ by Newton from the Manaster--Koehler start~\cite{mk},
 with a bracketing fallback, after checking the no-arbitrage bounds (\code{implied\_vol}).
 
 \textbf{Convergence.} In CRR, $\ln S_N=\ln S_0+\sum_i X_i$ with i.i.d.\ $X_i=\pm\sigma\sqrt{\Delta t}$ whose mean and
-variance match risk-neutral GBM to $O(\Delta t)$; by the CLT $\ln S_T$ becomes normal and the tree price tends to BS.
+variance match risk-neutral GBM to $O(\Delta t)$; by the CLT~\cite{hull} $\ln S_T$ becomes normal and the tree price tends to BS.
 The error is $O(1/N)$ but oscillates: terminal nodes sit at $S_0e^{(2j-N)\sigma\sqrt{\Delta t}}$, so the strike's
 position $\lambda=\mathrm{frac}\big([\ln(K/S_0)+N\sigma\sqrt{\Delta t}]/2\sigma\sqrt{\Delta t}\big)$ between two nodes
 changes with $N$. At the money $\lambda=0$ for even $N$ (strike on a node) and $\tfrac12$ for odd $N$.
@@ -113,7 +113,7 @@ grid up to 25{,}000 steps). Runtimes are in \code{conv\_runtime.csv}.}\label{tab
 \end{table}
 
 \section{Real market: smiles, errors, model vs input}
-\textbf{Data.} NSE F\&O bhavcopies for NIFTY, Reliance (RIL) and HUL on 14 days chosen by NIFTY realised volatility:
+\textbf{Data.} NSE F\&O bhavcopies~\cite{data} for NIFTY, Reliance (RIL) and HUL on 14 days chosen by NIFTY realised volatility:
 \emph{calm} (14--18 Jul 2025), \emph{normal} (2--8 Jan 2025), \emph{volatile} (7--11 Apr 2025). The risk-free rate is
 the RBI 91-day T-bill cut-off yield before each regime (normal 6.60\%, volatile 6.30\%, calm 5.39\%), as $r=\ln(1+y)$.
 \emph{Cleaning} (\code{data\_filter\_summary}). An audit of the raw files changed what counts as a market price. When a
@@ -128,7 +128,7 @@ contract. Of 28{,}114 option rows, 6{,}052 remain (72--87\% of the pre-cleaning 
 cell, all 14 days kept), and implied volatility is solved for all of them. Underlying histories drop two
 one-hour Saturday test sessions; close-to-close volatilities use dividend-adjusted closes. Using spot $S$ leaves a
 jump between put and call smiles at $K/S=1$; replacing $S$ by the forward implied by parity,
-$F=K+e^{rT}(C_K-P_K)$ (median of 5 strikes), and pricing with Black-76 closes it (\code{mkt\_forward\_fix}).
+$F=K+e^{rT}(C_K-P_K)$ (median of 5 strikes), and pricing with Black-76~\cite{b76} closes it (\code{mkt\_forward\_fix}).
 
 \textbf{Smiles.} Every regime shows a skewed smile far from the constant $\sigma$ of both models
 (Fig.~\ref{fig:smile}). Fitting $\sigma(m)=a+b(m-1)+c(m-1)^2$, $m=K/F$, NIFTY's ATM level $a$ moves 10.5\%
@@ -148,7 +148,7 @@ Fig.~\ref{fig:headline} separates three sources of error. Contracts on one date 
 inputs and smile, so they are not independent; every interval below is a 95\% bootstrap CI that resamples whole
 trading dates (14 overall, only 4--5 per regime, so the intervals are rough and if anything too narrow).
 (i)~\emph{Numerical:} with $\sigma$ fixed, BS and a 200-step CRR tree differ by only 0.02--0.12\,bp of the underlying
-(all contracts: 0.05\,bp, CI $[0.04,0.05]$). (ii)~\emph{Input:} switching between five reasonable volatility
+(all contracts: 0.05\,bp, CI $[0.04,0.06]$). (ii)~\emph{Input:} switching between five reasonable volatility
 estimates (30/60/252-day historical, EWMA, Parkinson) moves prices by 4--21\,bp (all: 11.2, $[9.9,12.5]$). With
 $\sigma$ = 30-day historical volatility both methods miss settlement prices by 5--35\,bp (all: 14.9, $[9.8,21.5]$).
 The volatile regime is clearly worst for NIFTY (26\,bp $[16,41]$ vs 5--7\,bp in the other regimes); for RIL and HUL
@@ -173,10 +173,10 @@ times larger.
 by 0.075, already twice the CRR error at $N=50$ (0.037) and eight times that at $N=200$ (0.009); a 5\% error moves
 it by 0.375 (\code{mr\_sigma\_vs\_N}).
 \textbf{Time-varying volatility.} Building $\sigma(t)$ from the NIFTY ATM term structure on 7 Apr 2025 and using
-Amin's steps ($\sigma_i^2\Delta t_i$ constant, so the tree recombines), the tree agrees with BS at the average
+Amin's steps~\cite{amin} ($\sigma_i^2\Delta t_i$ constant, so the tree recombines), the tree agrees with BS at the average
 variance $\bar\sigma^2=\frac1T\int\sigma^2dt$ up to the same discretisation error as a constant-$\sigma$ tree
 (e.g.\ $-0.074$ vs $-0.078$ index points at $N=800$): for Europeans only total variance matters.
-\textbf{Discrete dividends.} Escrowed BS ($S\mapsto S-\sum_iD_ie^{-rt_i}$) applies $\sigma$ only to the risky part.
+\textbf{Discrete dividends.} Escrowed BS~\cite{hull} ($S\mapsto S-\sum_iD_ie^{-rt_i}$) applies $\sigma$ only to the risky part.
 In the cash-dividend model the whole price diffuses and drops by $D$ on the ex-date; the tree handles this directly
 (CRR to the ex-date, drop $D$ at every node, then BS: \code{binomial\_price\_cash\_div}, checked against
 Gauss--Hermite quadrature to $5\times10^{-4}$). For $S=100$, $D=3$ at $t=0.5$, escrowed BS underprices the call by
@@ -200,9 +200,9 @@ HUL had no traded options spanning its June ex-date.
 \section{Machine learning: can ML choose a better $\sigma$?}
 Since the volatility input drives pricing error, we ask whether ML can combine the estimates we already have into a
 better $\sigma$ than any single one (\code{src/ml/sigma\_blend.py}). \emph{Inputs} (one row per underlying and day,
-all known at the close, no option prices): the 30/60/252-day historical, EWMA and Parkinson volatilities and India
+all known at the close, no option prices): the 30/60/252-day historical, EWMA and Parkinson~\cite{ewma} volatilities and India
 VIX. \emph{Target:} that day's ATM implied volatility of the nearest expiry with $\ge7$ days, i.e.\ the $\sigma$ the
-market uses. \emph{Models:} a linear regression (LR) and a random forest (RF) on all six inputs, and a linear
+market uses. \emph{Models:} a linear regression (LR) and a random forest (RF)~\cite{rf} on all six inputs, and a linear
 regression on 30-day historical and VIX only. Each predicts days it was not trained on, in two ways: \emph{unseen
 day} (trained on the other 13 days, so it has seen the same regime; a best case) and \emph{unseen regime}
 (trained on the other two regimes). The predicted $\sigma$ prices every contract with Black-76, exactly like the
@@ -228,16 +228,30 @@ prices, gives 6.3\,bp: the room left for any $\sigma$ built without option price
 $\sigma$ by 21\% (vs EWMA) to 32\% (vs 30-day) within known market conditions, but not in a new regime; there, a simple blend of 30-day
 historical volatility and VIX, or EWMA alone, is the safer choice.}
 
-\section{Limitations}
+\section{Robustness and limitations}
+\textbf{Liquidity filters} (\code{src/market/robustness.py}, \code{rob\_liquidity}). Rebuilding the dataset with
+looser filters (volume $\ge1$, no open-interest limit, with or without the Rs~1 minimum premium: 6{,}271 and
+6{,}547 contracts) and a stricter one (volume $\ge100$, open interest $\ge500$: 5{,}343) leaves the decomposition
+unchanged: numerical 0.047--0.052\,bp, input choice 10.4--11.2\,bp, market error with 30-day historical
+14.3--14.9\,bp and with ATM IV 6.1--6.3\,bp, so the input effect stays 215--222 times the numerical gap. The loose
+filters add few contracts because trade-set settlements already require trading; that filter, the arbitrage
+cleaning and the maturity and moneyness limits stay on in every variant, since without them the ``market price''
+is NSE's own model or an arbitrage.
+\textbf{Trading-day clock} (\code{rob\_clock}). Volatilities are annualised over 252 trading days while $T$ counts
+calendar days. Repricing with variance $\sigma^2 n_{\text{td}}/252$, where $n_{\text{td}}$ counts trading-day returns
+to expiry (weekends and NSE holidays excluded), does not help: the error with 30-day historical volatility moves by
+$+0.2$\,bp for expiries $\le7$ days (paired CI $[-1.3,2.1]$), $+1.8$ for 8--30 days ($[-0.3,3.9]$) and $+0.5$ beyond
+($[-1.1,2.7]$); with EWMA overall it is $+1.8$ ($[0.02,3.7]$), slightly worse. The calendar clock is therefore kept.
+Prices with ATM IV do not depend on the clock, since that $\sigma$ is fitted on the same day.
+
 \textbf{Sample.} The market study covers 14 trading days (4--5 per regime) on three underlyings. Date-bootstrap
 intervals from so few clusters are rough and probably too narrow, and the ML step learns from only 42 rows; the
 direction of every result is consistent across cells, but its size over a full year is untested.
-\textbf{Market prices.} Settlements are closing-half-hour VWAPs, not quotes synchronous with the underlying, and the
-liquidity filters (volume $\ge10$, open interest $\ge50$, traded settlements only) shape which contracts remain; we
-have not checked how the error sizes change under looser filters.
-\textbf{Inputs.} Volatilities are annualised over 252 trading days while $T$ counts calendar days, so a short option
-over a weekend gets weekend variance it may not carry; a trading-day clock was not tested. The T-bill rate is not
-the true carry for single stocks (Section~5), and India VIX measures NIFTY volatility yet is used for Reliance and HUL.
+\textbf{Market prices.} Settlements are closing-half-hour VWAPs, not quotes synchronous with the underlying. NSE
+holidays after the end of our NIFTY history (1 Aug 2025) are not known to the trading-day count, which affects only
+the calm regime's later expiries.
+\textbf{Inputs.} The T-bill rate is not the true carry for single stocks (Section~5), and India VIX measures NIFTY
+volatility yet is used for Reliance and HUL.
 \textbf{Scope.} All options are European, so the tree's main practical advantage (early exercise) is argued, not
 measured. Both models use one constant $\sigma$ per day, so the smile residual (6.3\,bp) is outside what either can
 fix. The \emph{unseen day} ML test trains on later days of the same regime, so it is a best case; the two-input
@@ -288,15 +302,17 @@ jumps) is the natural next step.
 
 \vspace{-4pt}
 {\small
-\begin{thebibliography}{9}\setlength{\itemsep}{0pt}
+\begin{thebibliography}{99}\setlength{\itemsep}{0pt}
 \bibitem{bs} F. Black, M. Scholes, The Pricing of Options and Corporate Liabilities, \emph{J. Political Economy} 81(3), 1973.
 \bibitem{crr} J. C. Cox, S. A. Ross, M. Rubinstein, Option Pricing: A Simplified Approach, \emph{J. Financial Economics} 7(3), 1979.
 \bibitem{jr} R. A. Jarrow, A. Rudd, \emph{Option Pricing}, Irwin, 1983.
 \bibitem{lr} D. P. J. Leisen, M. Reimer, Binomial Models for Option Valuation, \emph{Applied Math. Finance} 3(4), 1996.
 \bibitem{amin} K. I. Amin, On the Computation of Continuous Time Option Prices Using Discrete Approximations, \emph{J. Financial Quant. Analysis} 26(4), 1991.
 \bibitem{hull} J. C. Hull, \emph{Options, Futures, and Other Derivatives}, 11th ed., Pearson, 2021; S. E. Shreve, \emph{Stochastic Calculus for Finance II}, Springer, 2004.
-\bibitem{ml} L. Breiman, Random Forests, \emph{Machine Learning} 45, 2001; F. Pedregosa et al., Scikit-learn,
-\emph{JMLR} 12, 2011; J.P. Morgan, \emph{RiskMetrics Technical Document}, 1996; M. Parkinson, \emph{J. Business} 53(1), 1980.
+\bibitem{b76} F. Black, The Pricing of Commodity Contracts, \emph{J. Financial Economics} 3, 1976.
+\bibitem{mk} S. Manaster, G. Koehler, The Calculation of Implied Variances from the Black--Scholes Model: A Note, \emph{J. Finance} 37(1), 1982.
+\bibitem{ewma} J.P. Morgan, \emph{RiskMetrics Technical Document}, 1996; M. Parkinson, The Extreme Value Method for Estimating the Variance of the Rate of Return, \emph{J. Business} 53(1), 1980.
+\bibitem{rf} L. Breiman, Random Forests, \emph{Machine Learning} 45, 2001; F. Pedregosa et al., Scikit-learn, \emph{JMLR} 12, 2011.
 \bibitem{data} NSE F\&O bhavcopies, equity price archives and corporate actions (nseindia.com, downloaded 31 Oct and 6 Nov 2026);
 NIFTY 50 history (niftyindices.com, 31 Oct 2026); RBI T-bill auction results, press releases 2024-25/1836, 2025-26/15, 2025-26/681 (rbi.org.in).
 \end{thebibliography}}

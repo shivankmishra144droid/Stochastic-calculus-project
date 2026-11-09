@@ -1,6 +1,6 @@
 """Regenerate every figure and table of the report (PROJECT_PLAN.md §6).
 
-    python run_all.py                     # everything (about 6 minutes; the convergence runtime table takes ~4)
+    python run_all.py                     # everything (about 7 minutes; the convergence runtime table takes ~4)
     python run_all.py --only convergence market
     python run_all.py --list
 
@@ -18,6 +18,7 @@ MODULES = {
     "tree": "src.tree_analysis.compare",
     "convergence": "src.convergence.experiments",
     "market": "src.market.analysis",          # builds data/processed (needed by model_risk and sigma_blend)
+    "robustness": "src.market.robustness",    # liquidity filters and trading-day clock
     "model_risk": "src.model_risk.experiments",
     "sigma_blend": "src.ml.sigma_blend",
 }

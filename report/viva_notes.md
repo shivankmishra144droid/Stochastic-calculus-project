@@ -12,10 +12,14 @@ familiar regime (10.1 bp) or EWMA / 30-day + VIX in a new one (12.2–12.7 bp). 
 forward, BS on that forward is enough: on Reliance all treatments missed by the same Rs 0.7–1.1.
 
 **"What are the weaknesses?"** Say them first, before the examiner does: 14 trading days and 3 underlyings
-(bootstrap intervals over so few dates are rough); settlements are closing VWAPs and we did not vary the liquidity
-filters; σ uses 252 trading days but T uses calendar days; the T-bill rate is not the stock carry (that is why the
+(bootstrap intervals over so few dates are rough); settlements are closing VWAPs; the T-bill rate is not the stock carry (that is why the
 dividend cannot be identified); VIX is NIFTY volatility used for stocks; no American options, so the tree's
 early-exercise advantage is argued, not measured; and the smile (6.3 bp) is outside both models.
+
+**"Do the results depend on your filters or day count?"** No, we checked both (`rob_liquidity`, `rob_clock`).
+Looser filters (volume ≥ 1, no OI) or stricter ones (volume ≥ 100, OI ≥ 500) keep numerical at 0.05 bp, input at
+10.4–11.2 bp and the smile at 6.1–6.3 bp. Measuring time in trading days (σ²·n_td/252) does not reduce errors at any
+maturity (+0.2 to +1.8 bp), so we keep calendar days.
 
 **Risk-neutral probability q.** q = (e^{(r−δ)Δt} − d)/(u − d) is the weight that makes the discounted stock a
 martingale, so pricing by expectation under q equals the cost of replication. It is not the real up-probability:
