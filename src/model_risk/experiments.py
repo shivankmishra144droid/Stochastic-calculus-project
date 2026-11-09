@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 import config
 from src.core.binomial import (binomial_price, binomial_price_cash_div, binomial_price_discrete_div,
-                               binomial_price_timevarying, bs_escrowed)
+                               binomial_price_timevarying, bs_escrowed, dividend_yield_equivalent)
 from src.core.bs import bs_price
 from src.data.load import load_dividends
 from src.plotting import GREEN, GREY, PALETTE, SLATE, save_table, savefig
@@ -18,12 +18,17 @@ S0, K0, R0, SIG0, T0 = config.S0, config.K0, config.R0, config.SIGMA0, config.T0
 N_TREE = 500
 
 
-def dividend_models(S, K, T, r, sig, divs, o, annual_div):
-    """Prices under the dividend treatments compared in the report (divs = [(t, D)])."""
+def dividend_models(S, K, T, r, sig, divs, o):
+    """Prices under the dividend treatments compared in the report (divs = [(t, D)]).
+
+    B uses the continuous yield with the SAME forward as the cash dividends (dividend_yield_equivalent).
+    A European BS price depends on S and q only through S e^{-qT}, so B is identical to A (escrow); likewise
+    C = D (see binomial_price_discrete_div). Only E (cash drop with sigma on the full price) is a different model.
+    """
     return {
         "BS, no dividend": bs_price(S, K, T, r, sig, o),
         "A: BS escrowed": bs_escrowed(S, K, T, r, sig, divs, o),
-        "B: BS yield q = D_annual/S": bs_price(S, K, T, r, sig, o, annual_div / S),
+        "B: BS yield q, same forward": bs_price(S, K, T, r, sig, o, dividend_yield_equivalent(S, T, r, divs)),
         "C: tree, proportional drop": binomial_price_discrete_div(S, K, T, r, sig, N_TREE, divs, o, "proportional"),
         "D: tree, escrowed": binomial_price_discrete_div(S, K, T, r, sig, N_TREE, divs, o, "escrow"),
         "E: tree, cash drop on ex-date": binomial_price_cash_div(S, K, T, r, sig, N_TREE, divs, o),
@@ -39,56 +44,143 @@ def dividends_synthetic():
     rows = []
     for K in np.arange(80, 121, 2.5):
         for o in ("C", "P"):
-            m = dividend_models(S0, K, T0, R0, SIG0, divs, o, annual_div=3.0)
+            m = dividend_models(S0, K, T0, R0, SIG0, divs, o)
             rows.append(dict(K=K, option_type=o, **m))
     return pd.DataFrame(rows)
 
 
-def dividends_market(df):
+CARRY_MIN_DAYS = 30      # shorter expiries give a carry rate too noisy to use (error in F/S is divided by T)
+N_BOOT = 2000
+
+
+def expiry_carry(df, sym):
+    """One row per (date, expiry) of `sym`: S, F, T, r, implied carry rate ln(F/S)/T, its spread over the T-bill
+    rate, and whether an ex-dividend date falls between the trade date and expiry."""
+    g = df[df["symbol"] == sym].groupby(["date", "expiry"]).agg(
+        S=("S", "first"), F=("F", "first"), T=("T", "first"), r=("r", "first"), days=("days", "first"),
+        regime=("regime", "first")).reset_index()
+    divs = load_dividends()
+    exd = divs.loc[divs["symbol"] == sym, "ex_date"]
+    g["spans_dividend"] = [((exd > d) & (exd < e)).any() for d, e in zip(g["date"], g["expiry"])]
+    g["r_carry"] = np.log(g["F"] / g["S"]) / g["T"]
+    g["spread"] = g["r_carry"] - g["r"]
+    return g
+
+
+def carry_spread(carry, min_days=CARRY_MIN_DAYS):
+    """Funding spread over the T-bill rate implied by parity on expiries WITHOUT a dividend:
+    T^2-weighted mean of ln(F/S)/T - r over expiries with >= min_days (the error of ln(F/S)/T scales like 1/T)."""
+    c = carry[~carry["spans_dividend"] & (carry["days"] >= min_days)]
+    if c.empty:
+        return np.nan
+    return float(np.average(c["spread"], weights=c["T"] ** 2))
+
+
+def implied_dividend(S, F, T, t_ex, r):
+    """D_impl = (S e^{rT} - F) e^{-r (T - t_ex)}: the cash dividend that makes the carry-r forward equal F."""
+    return (S * np.exp(r * T) - F) * np.exp(-r * (T - t_ex))
+
+
+def dividends_market(df, spreads=None):
     """Reliance options on 14-18 Jul 2025 expiring after the Rs 5.50 ex-date (14 Aug 2025).
 
     Each model prices off spot S with sigma = the market ATM implied vol of that expiry, so only the
-    dividend treatment differs. Also reports the dividend implied by the put-call-parity forward:
-        D_impl = (S e^{rT} - F) e^{-r (T - t_ex)}.
+    dividend treatment differs. Two carry assumptions:
+      * T-bill:     the stock grows at the T-bill rate r (as in the rest of the project);
+      * calibrated: it grows at r + s, s = carry_spread() from the same stock's no-dividend expiries.
+        This is implemented by pricing from S e^{sT} (discounting stays at r), which shifts the forward exactly.
+    Also reports the parity-implied dividend under both carry rates.
     """
     divtab = load_dividends()
+    spreads = spreads or {}
     out = []
     for _, dv in divtab.iterrows():
         sel = df[(df["symbol"] == dv["symbol"]) & (df["date"] < dv["ex_date"]) & (df["expiry"] > dv["ex_date"])]
+        s = spreads.get(dv["symbol"], 0.0)
         for _, row in sel.iterrows():
             t_ex = (dv["ex_date"] - row["date"]).days / 365
             divs = [(t_ex, dv["amount"])]
             m = dividend_models(row["S"], row["strike"], row["T"], row["r"], row["atm_iv"], divs,
-                                row["option_type"], annual_div=dv["amount"])
-            d_impl = (row["S"] * np.exp(row["r"] * row["T"]) - row["F"]) * np.exp(-row["r"] * (row["T"] - t_ex))
+                                row["option_type"])
+            mc = dividend_models(row["S"] * np.exp(s * row["T"]), row["strike"], row["T"], row["r"], row["atm_iv"],
+                                 divs, row["option_type"])
             out.append(dict(symbol=dv["symbol"], date=row["date"], expiry=row["expiry"], strike=row["strike"],
                             option_type=row["option_type"], settle=row["settle"], S=row["S"], dividend=dv["amount"],
-                            implied_dividend=d_impl, **m))
+                            carry_spread=s,
+                            implied_dividend=implied_dividend(row["S"], row["F"], row["T"], t_ex, row["r"]),
+                            implied_dividend_calibrated=implied_dividend(row["S"], row["F"], row["T"], t_ex,
+                                                                         row["r"] + s),
+                            **m, **{f"{k} | calibrated carry": v for k, v in mc.items()}))
     return pd.DataFrame(out)
+
+
+def implied_dividend_bootstrap(carry, ex_date, n_boot=N_BOOT, seed=config.SEED):
+    """Date-clustered bootstrap of the calibrated implied dividend.
+
+    Trade dates are resampled with replacement; for each resample the spread is re-estimated from the
+    no-dividend expiries of the drawn dates, and the implied dividend is the median over the drawn dates'
+    dividend-spanning expiries. Returns (point estimate, 2.5%, 97.5%) and the same for the T-bill carry.
+    """
+    rng = np.random.default_rng(seed)
+    dates = carry["date"].unique()
+    span = carry[carry["spans_dividend"]].copy()
+    span["t_ex"] = (pd.Timestamp(ex_date) - span["date"]).dt.days / 365
+
+    def estimate(c, sp):
+        s = carry_spread(c)
+        if not np.isfinite(s) or sp.empty:
+            return np.nan, np.nan
+        cal = implied_dividend(sp["S"], sp["F"], sp["T"], sp["t_ex"], sp["r"] + s)
+        raw = implied_dividend(sp["S"], sp["F"], sp["T"], sp["t_ex"], sp["r"])
+        return float(np.median(cal)), float(np.median(raw))
+
+    point = estimate(carry, span)
+    by_date = {d: (carry[carry["date"] == d], span[span["date"] == d]) for d in dates}
+    boots = []
+    for _ in range(n_boot):
+        draw = rng.choice(dates, len(dates), replace=True)
+        c = pd.concat([by_date[d][0] for d in draw])
+        sp = pd.concat([by_date[d][1] for d in draw])
+        boots.append(estimate(c, sp))
+    b = np.array(boots, dtype=float)
+    ci = np.nanpercentile(b, [2.5, 97.5], axis=0)
+    return dict(cal=point[0], cal_lo=ci[0, 0], cal_hi=ci[1, 0], raw=point[1], raw_lo=ci[0, 1], raw_hi=ci[1, 1],
+                n_boot_valid=int(np.isfinite(b[:, 0]).sum()))
 
 
 def dividends(df):
     syn = dividends_synthetic()
-    mkt = dividends_market(df)
     models = [c for c in syn.columns if c[:2] in ("BS", "A:", "B:", "C:", "D:", "E:")]
     paths = [save_table(syn, "mr_dividends_synthetic")]
+    carries = {sym: expiry_carry(df, sym) for sym in config.CORP_ACTION_FILES}
+    spreads = {sym: carry_spread(c) for sym, c in carries.items()}
+    paths.append(save_table(pd.concat([c.assign(symbol=s) for s, c in carries.items()]), "mr_carry_by_expiry"))
+    mkt = dividends_market(df, spreads)
     if len(mkt):
-        err = pd.DataFrame({m: (mkt[m] - mkt["settle"]) for m in models})
-        summ = pd.DataFrame({"model": models, "n": len(mkt),
-                             "bias": err.mean().values, "mae": err.abs().mean().values,
-                             "rmse": np.sqrt((err**2).mean()).values})
-        summ["implied_dividend_median"] = mkt.groupby("date")["implied_dividend"].median().median()
-        summ["announced_dividend"] = mkt["dividend"].iloc[0]
-        # noise floor: the same parity "carry gap" S e^{rT} - F on expiries with NO dividend before expiry
         sym = mkt["symbol"].iloc[0]
-        g = df[df["symbol"] == sym].groupby(["date", "expiry"]).first().reset_index()
-        divs = load_dividends()
-        exd = divs.loc[divs["symbol"] == sym, "ex_date"]
-        nodiv = g[[not ((exd > d) & (exd < e)).any() for d, e in zip(g["date"], g["expiry"])]]
-        gap = nodiv["S"] * np.exp(nodiv["r"] * nodiv["T"]) - nodiv["F"]
-        summ["nodiv_carry_gap_std"] = gap.std()
-        summ["nodiv_carry_gap_min"] = gap.min()
-        summ["nodiv_carry_gap_max"] = gap.max()
+        rows = []
+        for carry_label, suffix in (("T-bill", ""), ("calibrated", " | calibrated carry")):
+            for m in models:
+                e = mkt[m + suffix] - mkt["settle"]
+                rows.append(dict(carry=carry_label, model=m, n=len(mkt), bias=e.mean(), mae=e.abs().mean(),
+                                 rmse=np.sqrt((e**2).mean())))
+        summ = pd.DataFrame(rows)
+        dv = load_dividends()
+        dv = dv[(dv["symbol"] == sym) & (dv["ex_date"] > mkt["date"].max())
+                & (dv["ex_date"] < mkt["expiry"].min())]["ex_date"]
+        assert len(dv) == 1, "the bootstrap assumes one ex-date inside the spanning expiries"
+        boot = implied_dividend_bootstrap(carries[sym], dv.iloc[0])
+        nodiv = carries[sym][~carries[sym]["spans_dividend"]]
+        long_ = nodiv[nodiv["days"] >= CARRY_MIN_DAYS]
+        summ = summ.assign(
+            announced_dividend=mkt["dividend"].iloc[0],
+            carry_spread=spreads[sym], carry_spread_n_expiries=len(long_),
+            carry_spread_sd_long=long_["spread"].std(), carry_spread_sd_short=nodiv.loc[
+                nodiv["days"] < CARRY_MIN_DAYS, "spread"].std(),
+            implied_dividend_tbill=boot["raw"], implied_dividend_tbill_lo=boot["raw_lo"],
+            implied_dividend_tbill_hi=boot["raw_hi"],
+            implied_dividend_calibrated=boot["cal"], implied_dividend_calibrated_lo=boot["cal_lo"],
+            implied_dividend_calibrated_hi=boot["cal_hi"], n_boot_valid=boot["n_boot_valid"])
         paths.append(save_table(summ, "mr_dividends_market"))
 
     fig, axes = plt.subplots(1, 2, figsize=(config.FIG_FULL, 2.4))

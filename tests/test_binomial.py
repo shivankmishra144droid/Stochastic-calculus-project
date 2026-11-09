@@ -4,7 +4,8 @@ import pytest
 import config
 from src.core.binomial import (binomial_greeks, binomial_price, binomial_price_cash_div,
                                binomial_price_discrete_div, binomial_price_timevarying, binomial_tree_values,
-                               bs_escrowed, bs_smoothed_price, cash_div_quadrature, tree_params)
+                               bs_escrowed, bs_smoothed_price, cash_div_quadrature, dividend_yield_equivalent,
+                               tree_params)
 from src.core.bs import bs_greeks, bs_price
 
 S, K, T, R, SIG = config.S0, config.K0, config.T0, config.R0, config.SIGMA0
@@ -114,3 +115,33 @@ def test_bs_smoothing_is_more_accurate():
     errs = [abs(bs_smoothed_price(S, K, T, R, SIG, n) - ref) for n in range(100, 111)]
     raw = [abs(binomial_price(S, K, T, R, SIG, n) - ref) for n in range(100, 111)]
     assert max(errs) < max(raw)
+
+
+@pytest.mark.parametrize("T,t_ex", [(1.0, 0.5), (30 / 365, 25 / 365), (0.25, 0.01)])
+def test_dividend_yield_matches_escrowed_forward(T, t_ex):
+    """q from dividend_yield_equivalent gives the same forward (and so the same put-call parity) as escrow."""
+    divs = [(t_ex, 3.0)]
+    q = dividend_yield_equivalent(S, T, R, divs)
+    assert S * np.exp(-q * T) == pytest.approx(S - 3.0 * np.exp(-R * t_ex), rel=1e-12)
+    c, p = bs_price(S, K, T, R, SIG, "C", q), bs_price(S, K, T, R, SIG, "P", q)
+    ce, pe = bs_escrowed(S, K, T, R, SIG, divs, "C"), bs_escrowed(S, K, T, R, SIG, divs, "P")
+    assert c - p == pytest.approx(ce - pe, abs=1e-10)
+    assert dividend_yield_equivalent(S, T, R, []) == 0.0
+
+
+def test_carry_spread_and_implied_dividend_recover_truth():
+    """Synthetic forwards with a known funding spread s and a known dividend: the estimators recover both."""
+    import pandas as pd
+    from src.model_risk.experiments import carry_spread, implied_dividend
+    r, s, D, S0_ = 0.06, 0.015, 5.5, 1500.0
+    rows = []
+    for days in (15, 45, 75):
+        T = days / 365
+        rows.append(dict(T=T, days=days, r=r, spans_dividend=False, spread=np.log(np.exp((r + s) * T)) / T - r))
+    c = pd.DataFrame(rows)
+    assert carry_spread(c) == pytest.approx(s, abs=1e-12)
+    T, t_ex = 45 / 365, 25 / 365
+    F = (S0_ - D * np.exp(-(r + s) * t_ex)) * np.exp((r + s) * T)
+    assert implied_dividend(S0_, F, T, t_ex, r + s) == pytest.approx(D, rel=1e-12)
+    # with the wrong (T-bill) carry the same forward implies a much smaller dividend
+    assert implied_dividend(S0_, F, T, t_ex, r) < D - 2.0

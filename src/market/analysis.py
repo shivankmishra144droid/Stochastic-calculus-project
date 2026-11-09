@@ -15,6 +15,7 @@ from src.core.binomial import binomial_price
 from src.core.bs import black76_price
 from src.data.clean import VOL_COLS, build_dataset
 from src.plotting import GREEN, GREY, PALETTE, SLATE, save_table, savefig
+from src.stats import cluster_mean_ci
 
 REGIME_ORDER = ["calm", "normal", "volatile"]
 VOL_LABELS = {"hv30": "30-day hist.", "hv60": "60-day hist.", "hv252": "252-day hist.",
@@ -49,7 +50,7 @@ def price_with(df: pd.DataFrame, vol_col: str, crr: bool = True) -> pd.DataFrame
 
 
 def priced_dataset():
-    """Clean dataset + ATM IV + BS/CRR prices for every volatility input. Saved for the ML modules."""
+    """Clean dataset + ATM IV + BS/CRR prices for every volatility input. Saved for model_risk and the sigma blend."""
     df, summary = build_dataset(save=True, verbose=False)
     df["atm_iv"] = atm_iv(df)
     for v in VOL_COLS + ["atm_iv"]:
@@ -126,6 +127,22 @@ def smiles(df):
     return paths
 
 
+def smile_params(df):
+    """Quadratic smile sigma(m) = a + b (m - 1) + c (m - 1)^2, m = K/F, fitted on the OTM implied vols of every
+    (symbol, date, expiry) with at least 5 strikes; median a (level), b (skew), c (curvature) per regime."""
+    d = df[df["otm"] & df["iv"].notna()]
+    rows = []
+    for (sym, date, exp), g in d.groupby(["symbol", "date", "expiry"]):
+        if len(g) < 5:
+            continue
+        c, b, a = np.polyfit(g["moneyness"] - 1, g["iv"], 2)
+        rows.append(dict(symbol=sym, regime=g["regime"].iloc[0], level_a=a, skew_b=b, curvature_c=c))
+    tab = (pd.DataFrame(rows).groupby(["symbol", "regime"])[["level_a", "skew_b", "curvature_c"]].median()
+           .reindex(pd.MultiIndex.from_product([list(config.UNDERLYINGS), REGIME_ORDER])).reset_index())
+    tab.columns = ["symbol", "regime", "level_a", "skew_b", "curvature_c"]
+    return save_table(tab, "mkt_smile_params")
+
+
 def forward_fix(df, sym="NIFTY", date="2025-01-02"):
     """Smile with spot-based BS IV (puts and calls do not meet at K/S = 1) vs Black-76 IV on the implied forward."""
     g = df[(df["symbol"] == sym) & (df["date"] == pd.Timestamp(date))]
@@ -189,10 +206,13 @@ def error_heatmap(df, sym="NIFTY"):
 
 def model_vs_input(df):
     """Headline comparison, in basis points of the underlying, averaged over contracts:
-       model choice  = |BS - CRR(200)| with the same sigma (hv30)
+       numerical     = |BS - CRR(200)| with the same sigma (hv30). CRR discretises the SAME GBM model as BS,
+                       so this is discretisation error, not a difference between models (it scales like 1/N).
        input choice  = mean pairwise |BS(sigma_i) - BS(sigma_j)| over the five historical estimates
        market error  = |BS(hv30) - market|
-       best constant sigma = |BS(ATM IV) - market| (what remains is the smile)
+       Each mean has a 95% CI from a bootstrap over trading dates (src.stats.cluster_mean_ci).
+       best constant sigma = |BS(ATM IV) - market|: what remains is the smile, i.e. the misspecification
+                       of the constant-sigma GBM model that BS and the tree share (ATM IV is fitted on the same day).
     """
     S = df["S"]
     bs = df[[f"bs_{v}" for v in VOL_COLS]].to_numpy()
@@ -200,29 +220,47 @@ def model_vs_input(df):
     pair = np.nanmean(np.abs(bs[:, i] - bs[:, j]), axis=1)
     t = pd.DataFrame({
         "symbol": df["symbol"], "regime": df["regime"],
-        "model_choice": (df["bs_hv30"] - df["crr_hv30"]).abs() / S * 1e4,
+        "numerical_bs_vs_crr": (df["bs_hv30"] - df["crr_hv30"]).abs() / S * 1e4,
         "input_choice": pair / S * 1e4,
         "market_error_hv30": (df["bs_hv30"] - df["settle"]).abs() / S * 1e4,
         "market_error_atm_iv": (df["bs_atm_iv"] - df["settle"]).abs() / S * 1e4,
     })
-    tab = t.groupby(["symbol", "regime"]).mean().reindex(
-        pd.MultiIndex.from_product([list(config.UNDERLYINGS), REGIME_ORDER])).reset_index()
-    tab.columns = ["symbol", "regime"] + list(tab.columns[2:])
+    metrics = ["numerical_bs_vs_crr", "input_choice", "market_error_hv30", "market_error_atm_iv"]
+    rows = []
+    for sym in config.UNDERLYINGS:
+        for reg in REGIME_ORDER:
+            g = t[(t["symbol"] == sym) & (t["regime"] == reg)].assign(date=df["date"])
+            ci = cluster_mean_ci(g, metrics, "date")
+            row = dict(symbol=sym, regime=reg, n_contracts=len(g), n_dates=int(ci["n_clusters"].iloc[0]))
+            for m in metrics:
+                row[m], row[f"{m}_lo"], row[f"{m}_hi"] = ci.loc[m, ["mean", "lo", "hi"]]
+            rows.append(row)
+    tab = pd.DataFrame(rows)
+    # pooled over all contracts (cluster = date), for the text
+    ci_all = cluster_mean_ci(t.assign(date=df["date"]), metrics, "date")
+    tab = pd.concat([tab, pd.DataFrame([dict(symbol="ALL", regime="ALL", n_contracts=len(t),
+                                             n_dates=int(ci_all["n_clusters"].iloc[0]),
+                                             **{k: v for m in metrics for k, v in
+                                                ((m, ci_all.loc[m, "mean"]), (f"{m}_lo", ci_all.loc[m, "lo"]),
+                                                 (f"{m}_hi", ci_all.loc[m, "hi"]))})])], ignore_index=True)
     path_t = save_table(tab, "mkt_model_vs_input")
 
-    labels = {"model_choice": "model choice |BS − CRR|", "input_choice": "input choice (σ estimates)",
+    labels = {"numerical_bs_vs_crr": "numerical |BS − CRR(200)|", "input_choice": "input choice (σ estimates)",
               "market_error_hv30": "|model − market|, σ = 30d hist.",
-              "market_error_atm_iv": "|model − market|, σ = ATM IV"}
+              "market_error_atm_iv": "smile: |model − market|, σ = ATM IV"}
     fig, ax = plt.subplots(figsize=(config.FIG_FULL, 2.6))
-    x = np.arange(len(tab))
+    tab_p = tab[tab["symbol"] != "ALL"].reset_index(drop=True)
+    x = np.arange(len(tab_p))
     w = 0.2
     for i, (c, col) in enumerate(zip(labels, [GREY, GREEN, SLATE, "#B45309"])):
-        ax.bar(x + (i - 1.5) * w, tab[c], w, color=col, label=labels[c])
+        err = np.vstack([tab_p[c] - tab_p[f"{c}_lo"], tab_p[f"{c}_hi"] - tab_p[c]])
+        ax.bar(x + (i - 1.5) * w, tab_p[c], w, color=col, label=labels[c],
+               yerr=err, error_kw=dict(lw=0.6, capsize=1.2, ecolor="k"))
     ax.set_yscale("log")
     short = {"NIFTY": "NIFTY", "RELIANCE": "RIL", "HINDUNILVR": "HUL"}
-    ax.set_xticks(x, [f"{short[s]}\n{r}" for s, r in zip(tab["symbol"], tab["regime"])], fontsize=7)
+    ax.set_xticks(x, [f"{short[s]}\n{r}" for s, r in zip(tab_p["symbol"], tab_p["regime"])], fontsize=7)
     ax.set_ylabel("Mean absolute difference\n(bp of underlying)")
-    ax.legend(fontsize=7, ncol=4, loc="lower center", bbox_to_anchor=(0.5, 1.0))
+    ax.legend(fontsize=7, ncol=2, loc="lower center", bbox_to_anchor=(0.5, 1.0))
     fig.tight_layout()
     return [path_t, savefig(fig, "mkt_model_vs_input")]
 
@@ -232,6 +270,7 @@ def make_figures(cfg=config) -> list[str]:
     paths = data_tables(df, summary)
     paths += vol_estimates(df)
     paths += smiles(df)
+    paths.append(smile_params(df))
     paths.append(forward_fix(df))
     paths.append(error_tables(df))
     paths.append(error_heatmap(df))

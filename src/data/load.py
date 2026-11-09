@@ -86,7 +86,8 @@ def _num(s: pd.Series) -> pd.Series:
 def load_spot(symbol: str, raw_dir=None) -> pd.DataFrame:
     """Daily open/high/low/close of the underlying, indexed by date, split/bonus-adjusted.
 
-    Concatenates every file matching config.SPOT_FILES[symbol] and drops duplicate dates.
+    Concatenates every file matching config.SPOT_FILES[symbol] and drops duplicate dates and the
+    short test sessions in config.SHORT_SESSIONS. Prices are NOT dividend-adjusted (see total_return_close).
     """
     raw_dir = str(raw_dir or config.RAW_DIR)
     files = sorted(glob.glob(f"{raw_dir}/{config.SPOT_FILES[symbol]}"))
@@ -102,10 +103,57 @@ def load_spot(symbol: str, raw_dir=None) -> pd.DataFrame:
         parts.append(out)
     s = pd.concat(parts).dropna(subset=["close"])
     s = s[~s.index.duplicated()].sort_index()
+    s = s.drop(pd.DatetimeIndex(config.SHORT_SESSIONS), errors="ignore")
     for ex_date, ratio in config.SPLITS.get(symbol, []):
         s.loc[s.index < pd.Timestamp(ex_date)] /= ratio
     s.index.name = "date"
     return s
+
+
+def split_factor(symbol: str, date) -> float:
+    """Number of today's shares per share held on `date` (product of split ratios with ex-date after `date`)."""
+    f = 1.0
+    for ex_date, ratio in config.SPLITS.get(symbol, []):
+        if pd.Timestamp(date) < pd.Timestamp(ex_date):
+            f *= ratio
+    return f
+
+
+def total_return_close(close: pd.Series, symbol: str, divs: pd.DataFrame | None = None) -> pd.Series:
+    """Close adjusted for cash dividends, for close-to-close volatility.
+
+    On an ex-date the price falls by about D without any economic loss; that is not volatility. Back-adjust:
+    every close before the ex-date is multiplied by (1 - D / previous close) (standard total-return adjustment),
+    so the ex-date return becomes ln((S_ex + D) / S_prev). Dividends are taken in split-adjusted units.
+    """
+    divs = load_dividends() if divs is None else divs
+    out = close.astype(float).copy()
+    for ex, amt in divs.loc[divs["symbol"] == symbol, ["ex_date", "amount"]].itertuples(index=False):
+        before = out.index < ex
+        if not before.any() or not (out.index >= ex).any():
+            continue
+        prev = close[before].iloc[-1]
+        out[before] *= 1 - amt / prev
+    return out
+
+
+def load_vix(raw_dir=None) -> pd.Series:
+    """India VIX close (annualised %, 30-day NIFTY implied volatility) by date. Note: NSE's VIX 'Open' column is
+    just the previous close, so only Close is used."""
+    raw_dir = str(raw_dir or config.RAW_DIR)
+    files = sorted(glob.glob(f"{raw_dir}/{config.VIX_FILE}"))
+    if not files:
+        raise FileNotFoundError(f"no India VIX file in {raw_dir}")
+    parts = []
+    for f in files:
+        v = pd.read_csv(f, encoding="utf-8-sig")
+        v.columns = [c.strip().lower() for c in v.columns]
+        parts.append(pd.Series(_num(v["close"]).to_numpy(),
+                               index=pd.to_datetime(v["date"].astype(str).str.strip(), format="%d-%b-%Y")))
+    s = pd.concat(parts)
+    s = s[~s.index.duplicated()].sort_index()
+    s.index.name = "date"
+    return s.rename("vix")
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +171,10 @@ def parse_dividend(purpose: str) -> float:
 
 def load_dividends(raw_dir=None) -> pd.DataFrame:
     """Cash dividends per share (ex-date, symbol, amount) from the NSE corporate-action files,
-    plus config.EXTRA_DIVIDENDS for announcements after the download window."""
+    plus config.EXTRA_DIVIDENDS for announcements after the download window.
+
+    `amount` is in split-adjusted units, consistent with load_spot (e.g. Reliance's Rs 10 of 19 Aug 2024, paid
+    before the 1:1 bonus, is Rs 5 per current share); `amount_declared` is the amount as announced."""
     raw_dir = str(raw_dir or config.RAW_DIR)
     rows = []
     for sym, pattern in config.CORP_ACTION_FILES.items():
@@ -136,5 +187,7 @@ def load_dividends(raw_dir=None) -> pd.DataFrame:
                     rows.append((pd.to_datetime(row["EX-DATE"], format="%d-%b-%Y"), sym, amt, "nse_corporate_actions"))
     for sym, d, amt in config.EXTRA_DIVIDENDS:
         rows.append((pd.Timestamp(d), sym, float(amt), "manual (config.EXTRA_DIVIDENDS)"))
-    out = pd.DataFrame(rows, columns=["ex_date", "symbol", "amount", "source"])
+    out = pd.DataFrame(rows, columns=["ex_date", "symbol", "amount_declared", "source"])
+    out["amount"] = [a / split_factor(s, d) for a, s, d in zip(out["amount_declared"], out["symbol"], out["ex_date"])]
+    out = out[["ex_date", "symbol", "amount", "amount_declared", "source"]]
     return out.drop_duplicates(["ex_date", "symbol"]).sort_values(["symbol", "ex_date"]).reset_index(drop=True)

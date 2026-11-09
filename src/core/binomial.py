@@ -235,6 +235,16 @@ def bs_escrowed(S, K, T, r, sigma, divs, option_type="C"):
     return bs_price(S_star, K, T, r, sigma, option_type)
 
 
+def dividend_yield_equivalent(S, T, r, divs):
+    """Continuous yield q with the same forward as the cash dividends (proposal §2.4):
+    S e^{-qT} = S - sum D_i e^{-r t_i}  =>  q = -ln(1 - PV(D) / S) / T.
+
+    (q = D/S is only right for one dividend and T = 1 year; for a one-month option it removes about D T, not D.)
+    """
+    pv = sum(D * np.exp(-r * t) for t, D in divs if 0 < t <= T)
+    return float(-np.log(1.0 - pv / S) / T)
+
+
 def bs_smoothed_price(S, K, T, r, sigma, N, option_type="C", q=0.0):
     """CRR tree whose last step is replaced by the Black-Scholes value over one dt ("BS-smoothing")."""
     u, d, p, N = tree_params(S, K, T, r, sigma, N, q, "crr")
@@ -250,5 +260,5 @@ def bs_smoothed_price(S, K, T, r, sigma, N, option_type="C", q=0.0):
 
 __all__ = ["tree_params", "binomial_price", "binomial_greeks", "binomial_tree_values",
            "binomial_price_timevarying", "binomial_price_discrete_div", "binomial_price_cash_div",
-           "cash_div_quadrature", "bs_escrowed",
+           "cash_div_quadrature", "bs_escrowed", "dividend_yield_equivalent",
            "bs_smoothed_price", "amin_time_grid"]

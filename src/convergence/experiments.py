@@ -44,11 +44,15 @@ def strike_position(N, S=S0, K=K0, T=T0, sig=SIG0):
 
 
 def loglog_slope(Ns, err, n_min=50):
-    """Slope of log|e_N| on log N (N >= n_min) with a 95% confidence interval."""
+    """Least-squares fit log|e_N| = log C + p log N over N >= n_min. Returns (p, C).
+
+    No confidence interval: e_N is deterministic, so a regression standard error would only measure how well a
+    straight line fits the oscillation, not any sampling uncertainty. The fit is reported separately for even
+    and odd N, where the CRR error is smooth.
+    """
     m = (Ns >= n_min) & (np.abs(err) > 0)
     res = stats.linregress(np.log(Ns[m]), np.log(np.abs(err[m])))
-    half = stats.t.ppf(0.975, m.sum() - 2) * res.stderr
-    return res.slope, res.slope - half, res.slope + half
+    return res.slope, float(np.exp(res.intercept))
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +83,8 @@ def loglog_error():
         for sub, mask in (("all", np.ones_like(NS, bool)), ("even", NS % 2 == 0), ("odd", NS % 2 == 1)):
             if name == "Leisen–Reimer" and sub != "all":
                 continue
-            s, lo, hi = loglog_slope(Ns_eff[mask], err[mask])
-            rows.append(dict(method=name, subsequence=sub, slope=s, ci_low=lo, ci_high=hi,
+            s, C = loglog_slope(Ns_eff[mask], err[mask])
+            rows.append(dict(method=name, subsequence=sub, slope=s, constant_C=C,
                              err_N100=abs(err[99]), err_N1000=abs(err[-1])))
     ax.loglog(NS, 2 / NS, "k:", lw=0.8, label=r"$2/N$")
     ax.loglog(NS, 1 / NS**2, "k--", lw=0.6, label=r"$1/N^2$")
@@ -145,32 +149,55 @@ def corrections():
     return savefig(fig, "conv_corrections")
 
 
+def _median_ms(f, *args, reps=5):
+    times = []
+    for _ in range(reps):
+        t0 = time.perf_counter()
+        f(*args)
+        times.append((time.perf_counter() - t0) * 1e3)
+    return float(np.median(times))
+
+
+def steps_needed(f, ref, tols, grid, confirm=10):
+    """Smallest grid N from which |error| < tol at every later grid point (N and N+1 each), checked until the
+    next `confirm` grid points (about a factor 2.5 in N) also pass. A single lucky N, where the oscillating error
+    happens to cross zero, does not count. Returns {tol: N or None}."""
+    errs, out = [], {}
+    for n in grid:
+        errs.append(max(abs(f(n) - ref), abs(f(n + 1) - ref)))
+        e = np.array(errs)
+        for tol in tols:
+            if tol in out:
+                continue
+            bad = np.nonzero(e >= tol)[0]
+            start = bad[-1] + 1 if len(bad) else 0          # first index after the last failure
+            if start < len(e) and len(e) - start > confirm:
+                out[tol] = int(grid[start])
+        if len(out) == len(tols):
+            break
+    return {tol: out.get(tol) for tol in tols}
+
+
+RUNTIME_STRIKES = {"ITM (K=90)": 90.0, "ATM (K=100)": 100.0, "OTM (K=110)": 110.0}
+
+
 def runtime_table(tols=(1e-2, 1e-3, 1e-4)):
-    """For each scheme: smallest N on a grid with |error| < tol at both N and N+1, and its median runtime."""
-    ref = bs_price(S0, K0, T0, R0, SIG0, "C")
+    """For each scheme and strike: steps needed for |error| < tol (see steps_needed) and the median runtime.
+
+    Strikes off the money matter: at K = S the strike sits on a node for every even N, so plain CRR has a clean
+    C/N error that Richardson cancels exactly; off the money the strike position changes with N and it does not.
+    The closed-form Black-Scholes time is reported as a reference row.
+    """
     grid = np.unique(np.round(np.geomspace(2, 25000, 90)).astype(int))
     rows = []
-    for name, f in schemes().items():
-        # walk the grid once, recording the first N that meets each tolerance; stop when all are met
-        first = {}
-        for n in grid:
-            err = max(abs(f(n) - ref), abs(f(n + 1) - ref))
-            for tol in tols:
-                if tol not in first and err < tol:
-                    first[tol] = int(n)
-            if len(first) == len(tols):
-                break
-        for tol in tols:
-            N_ok = first.get(tol)
-            if N_ok is None:
-                rows.append(dict(method=name, tol=tol, N=np.nan, runtime_ms=np.nan))
-                continue
-            times = []
-            for _ in range(5):
-                t0 = time.perf_counter()
-                f(N_ok)
-                times.append((time.perf_counter() - t0) * 1e3)
-            rows.append(dict(method=name, tol=tol, N=N_ok, runtime_ms=float(np.median(times))))
+    for label, K in RUNTIME_STRIKES.items():
+        ref = bs_price(S0, K, T0, R0, SIG0, "C")
+        rows.append(dict(strike=label, K=K, method="Black–Scholes (closed form)", tol=np.nan, N=np.nan,
+                         runtime_ms=_median_ms(bs_price, S0, K, T0, R0, SIG0, "C", reps=50)))
+        for name, f in schemes(K=K).items():
+            for tol, N_ok in steps_needed(f, ref, tols, grid).items():
+                rows.append(dict(strike=label, K=K, method=name, tol=tol, N=N_ok,
+                                 runtime_ms=_median_ms(f, N_ok) if N_ok else np.nan))
     return save_table(pd.DataFrame(rows), "conv_runtime")
 
 

@@ -54,10 +54,26 @@ EXTRA_DIVIDENDS = [("RELIANCE", "2025-08-14", 5.50)]
 # Splits / bonus issues: (first ex-date, ratio). Prices before the ex-date are divided by ratio.
 SPLITS = {"RELIANCE": [("2024-10-28", 2.0)]}  # 1:1 bonus
 
+# Short NSE disaster-recovery test sessions on Saturdays (about an hour of trading). Their high-low range is
+# ~7% of a normal day's, so as full "days" they bias range-based volatility down; dropped by load_spot, so the
+# move rolls into the next session's close-to-close return. (20 Jan 2024 and 1 Feb 2025 were full Saturday
+# sessions and are kept.)
+SHORT_SESSIONS = ["2024-03-02", "2024-05-18"]
+
+# India VIX (NSE, Historical Data -> India VIX); used for reference, NIFTY only.
+VIX_FILE = "hist_india_vix_*.csv"
+
 # ---------------------------------------------------------------------------
 # Cleaning filters
 # ---------------------------------------------------------------------------
 MIN_VOLUME, MIN_OI = 10, 50      # contracts
+# Keep only prices set by trades: NSE reports a THEORETICAL settlement price (its own model) when a contract
+# did not trade enough near the close; then SttlmPric != ClsPric. Comparing models with NSE's model is circular.
+TRADED_SETTLE_ONLY = True
+MIN_PRICE = 1.0                   # Rs; below this one tick (0.05) is more than 5% of the premium
+# Static-arbitrage cleaning across strikes (monotone, convex, |dV/dK| <= e^{-rT}); violations smaller than
+# max(ARB_TOL_ABS, ARB_TOL_REL * price) are treated as tick / closing-VWAP noise and kept.
+ARB_TOL_ABS, ARB_TOL_REL = 0.10, 0.01
 MONEYNESS = (0.80, 1.20)          # K / F
 MIN_DAYS, MAX_EXPIRIES = 3, 3
 CRR_STEPS_MARKET = 200            # tree size for market pricing
