@@ -266,6 +266,17 @@ the choice of $\sigma$ and 6.3\,bp for the smile that neither can produce. So th
 \emph{contract} and by the \emph{$\sigma$ available}, not by which model fits the market better. Table~\ref{tab:rule}
 gives the rule that follows from our results.
 
+\textbf{Expected vs found.} Two outcomes of our proposal came out differently. (i) We expected convergence to be
+slowest deep out of the money and at short maturity. In absolute terms it is the opposite: at $N\approx200$ the CRR
+call error is $9.4\times10^{-3}$ at the money ($T=1$) against $1.8\times10^{-3}$ at $K/S=0.8$, and it grows with $T$.
+Relative to the price the expectation holds: $0.09\%$ at the money against $4.8\%$ for $K/S=1.2$ with one month
+to expiry, because those options are worth almost nothing. (ii) We expected settings where the tree is more
+accurate than BS. That holds for a cash dividend modelled from spot (escrowed BS is up to 1.3\% too low), but not
+for time-varying $\sigma$, where BS with the average variance gives the same price, and on Reliance market prices
+the dividend treatments could not be told apart. The other expected outcomes (the $O(1/N)$ rate with even/odd
+oscillation, Leisen--Reimer the most accurate, a smile in NSE data, and volatility mattering more than the number
+of steps) were confirmed.
+
 \begin{table}[H]
 \raggedright\small
 \begin{tabular}{@{}p{0.27\linewidth}p{0.25\linewidth}p{0.42\linewidth}@{}}
