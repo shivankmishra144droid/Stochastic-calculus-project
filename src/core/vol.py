@@ -20,11 +20,17 @@ def hist_vol(close: pd.Series, window: int = 30, trading_days: int = 252) -> pd.
 
 
 def ewma_vol(close: pd.Series, lam: float = 0.94, trading_days: int = 252) -> pd.Series:
-    """RiskMetrics EWMA: sigma_t^2 = lam sigma_{t-1}^2 + (1 - lam) R_t^2 (seeded with the first 30-day variance)."""
+    """RiskMetrics EWMA: sigma_t^2 = lam sigma_{t-1}^2 + (1 - lam) R_t^2.
+
+    Seeded on the 30th return with the variance of the first 30 returns (NaN before), so every value uses only
+    returns up to and including its own date (no look-ahead)."""
     R = log_returns(close).dropna()
-    var = np.empty(len(R))
-    var[0] = R.iloc[:30].var() if len(R) >= 30 else R.var()
-    for i in range(1, len(R)):
+    var = np.full(len(R), np.nan)
+    if len(R) < 2:
+        return pd.Series(np.nan, index=close.index)
+    k = min(30, len(R)) - 1
+    var[k] = R.iloc[:k + 1].var()
+    for i in range(k + 1, len(R)):
         var[i] = lam * var[i - 1] + (1 - lam) * R.iloc[i] ** 2
     out = pd.Series(np.sqrt(var * trading_days), index=R.index)
     return out.reindex(close.index)

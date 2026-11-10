@@ -3,8 +3,9 @@
 Pipeline (order matters; each step's removals are recorded for the report):
  1. keep config.UNDERLYINGS                      (load_all)
  2. attach S, days, T, r, regime and volatility estimates (no look-ahead)
- 3. filters: has S, settle > 0, price set by trades (NSE theoretical settlements dropped), volume, open interest,
-    minimum premium, static arbitrage across strikes (monotone, convex, bounded slope; lowest-volume offender dropped), open interest, days to expiry, nearest expiries
+ 3. filters: has S, settle > 0, price set by trades (NSE theoretical settlements dropped), days to expiry,
+    nearest expiries, volume, open interest, minimum premium, static arbitrage across strikes (monotone, convex,
+    bounded slope; lowest-volume offender dropped)
  4. implied forward per (symbol, date, expiry) from put-call parity; moneyness = K / F
  5. moneyness filter; no-arbitrage lower bound on F; OTM flag (puts K < F, calls K >= F) for smiles
  6. implied volatility (Black-76 on F, and Black-Scholes on spot for the before/after comparison)

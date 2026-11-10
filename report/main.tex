@@ -239,9 +239,10 @@ cleaning and the maturity and moneyness limits stay on in every variant, since w
 is NSE's own model or an arbitrage.
 \textbf{Trading-day clock} (\code{rob\_clock}). Volatilities are annualised over 252 trading days while $T$ counts
 calendar days. Repricing with variance $\sigma^2 n_{\text{td}}/252$, where $n_{\text{td}}$ counts trading-day returns
-to expiry (weekends and NSE holidays excluded), does not help: the error with 30-day historical volatility moves by
-$+0.2$\,bp for expiries $\le7$ days (paired CI $[-1.3,2.1]$), $+1.8$ for 8--30 days ($[-0.3,3.9]$) and $+0.5$ beyond
-($[-1.1,2.7]$); with EWMA overall it is $+1.8$ ($[0.02,3.7]$), slightly worse. The calendar clock is therefore kept.
+to expiry (weekends and NSE holidays excluded, the 1 Feb 2025 Saturday session included), does not help: the error
+with 30-day historical volatility moves by $+0.2$\,bp for expiries $\le7$ days (paired CI $[-1.3,2.1]$), $+1.8$ for
+8--30 days ($[-0.3,3.9]$) and $+0.3$ beyond ($[-1.7,2.6]$); with EWMA it is $+2.1$ for 8--30 days ($[0.2,4.2]$),
+slightly worse, and $+1.8$ overall ($[-0.01,3.7]$). The calendar clock is therefore kept.
 Prices with ATM IV do not depend on the clock, since that $\sigma$ is fitted on the same day.
 
 \textbf{Sample.} The market study covers 14 trading days (4--5 per regime) on three underlyings. Date-bootstrap

@@ -94,13 +94,28 @@ def trading_holidays() -> pd.DatetimeIndex:
     return weekdays.difference(idx)
 
 
-def trading_days_to_expiry(date: pd.Series, expiry: pd.Series, holidays=None) -> np.ndarray:
+def weekend_sessions() -> pd.DatetimeIndex:
+    """Weekend days on which NSE traded (e.g. the Budget-day Saturday, 1 Feb 2025), from the NIFTY history."""
+    idx = load_spot("NIFTY").index
+    return idx[idx.day_of_week >= 5]
+
+
+def trading_days_to_expiry(date: pd.Series, expiry: pd.Series, holidays=None, extra_sessions=None) -> np.ndarray:
     """Number of trading-day returns from the close on `date` to the close on `expiry` (days in (date, expiry]).
-    Holidays are known only up to the end of the price history; after that only weekends are excluded."""
-    holidays = trading_holidays() if holidays is None else holidays
+
+    Weekdays minus NSE holidays, plus weekend sessions that NSE actually held. Both lists come from the NIFTY
+    history (`trading_holidays`, `weekend_sessions`) unless given; if `holidays` is given, `extra_sessions`
+    defaults to none. Holidays and special sessions are known only up to the end of the price history; after that
+    only weekends are excluded."""
+    if holidays is None:
+        holidays = trading_holidays()
+        extra_sessions = weekend_sessions() if extra_sessions is None else extra_sessions
+    extra = np.asarray(pd.DatetimeIndex([] if extra_sessions is None else extra_sessions), dtype="datetime64[D]")
     d0 = (date + pd.Timedelta(days=1)).to_numpy("datetime64[D]")
     d1 = (expiry + pd.Timedelta(days=1)).to_numpy("datetime64[D]")
-    return np.busday_count(d0, d1, holidays=np.asarray(holidays, dtype="datetime64[D]"))
+    n = np.busday_count(d0, d1, holidays=np.asarray(holidays, dtype="datetime64[D]"))
+    n += ((extra[None, :] >= d0[:, None]) & (extra[None, :] < d1[:, None])).sum(axis=1)
+    return n
 
 
 def clock_table(df: pd.DataFrame | None = None, inputs=("hv30", "ewma")) -> pd.DataFrame:

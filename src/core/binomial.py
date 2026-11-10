@@ -95,6 +95,8 @@ def binomial_greeks(S, K, T, r, sigma, N, option_type="C", q=0.0, method="crr"):
     Vega, Rho: central differences (sigma ± 0.001, r ± 0.0001) with the same N.
     """
     u, d, p, Nn = tree_params(S, K, T, r, sigma, N, q, method)
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"p = {p:.4f} outside (0,1): d < e^((r-q)dt) < u violated (arbitrage)")
     V0, lv = _induct(S, K, T, r, Nn, u, d, p, option_type, keep_levels=2)
     dt = T / Nn
     (Vu, Vd), (Vuu, Vud, Vdd) = lv[1], lv[2]

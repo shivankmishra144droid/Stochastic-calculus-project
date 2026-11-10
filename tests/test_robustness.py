@@ -24,5 +24,14 @@ def test_trading_days_skip_weekends_and_holidays():
     assert list(rb.trading_days_to_expiry(d, e, holidays=hol)) == [1, 4, 0]
 
 
+def test_weekend_session_is_counted():
+    d = pd.Series(pd.to_datetime(["2025-01-30"]))                                    # Thu
+    e = pd.Series(pd.to_datetime(["2025-02-03"]))                                    # Mon
+    sat = pd.DatetimeIndex(["2025-02-01"])                                           # Budget-day session
+    assert list(rb.trading_days_to_expiry(d, e, holidays=pd.DatetimeIndex([]))) == [2]
+    assert list(rb.trading_days_to_expiry(d, e, holidays=pd.DatetimeIndex([]), extra_sessions=sat)) == [3]
+    assert pd.Timestamp("2025-02-01") in rb.weekend_sessions()
+
+
 def test_known_nse_holiday_is_found():
     assert pd.Timestamp("2025-03-14") in rb.trading_holidays()          # Holi 2025, a Friday

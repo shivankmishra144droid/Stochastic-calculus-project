@@ -32,3 +32,13 @@ def test_no_look_ahead(gbm):
     d = pd.Timestamp("2021-06-05")                       # a Saturday: must take Friday's value
     assert as_of(v, [d])[0] == v.loc[:d].dropna().iloc[-1]
     assert log_returns(gbm).index.equals(gbm.index)
+
+
+def test_ewma_no_look_ahead(gbm):
+    """Changing a later price must not change any earlier EWMA value (including the seed window)."""
+    v = ewma_vol(gbm)
+    bumped = gbm.copy()
+    bumped.iloc[20] *= 1.05                               # inside the first 30 returns
+    w = ewma_vol(bumped)
+    assert v.iloc[:20].equals(w.iloc[:20])
+    assert v.iloc[:30].isna().all() and np.isfinite(v.iloc[30])

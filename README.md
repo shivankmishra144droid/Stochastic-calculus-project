@@ -45,7 +45,7 @@ implied vol) misses by 2–15 bp, the smile that both share; that is the real mo
 ```bash
 python -m venv .venv && .venv/Scripts/activate      # (source .venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
-python -m pytest -q                                 # 78 tests, ~10 s
+python -m pytest -q                                 # 80 tests, ~10 s
 python run_all.py                                   # every figure and table, ~7 min (4 of them: the runtime table)
 python run_all.py --only convergence market         # just some parts
 ```
